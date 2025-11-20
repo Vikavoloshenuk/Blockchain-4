@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title Купівля товару з оплатою через смарт-контракт
+/// @author ...
+/// @notice Контракт приймає платіж за товар та дозволяє власнику вивести кошти
+contract SimpleShop {
+    /// @notice адреса власника товару (продавця)
+    address public owner;
+
+    /// @notice назва товару (необов'язковий, але зручно для наочності)
+    string public itemName;
+
+    /// @notice ціна товару в wei
+    uint256 public itemPriceWei;
+
+    /// @notice сума коштів, яку власник може вивести зі смарт-контракту
+    uint256 public ownerBalance;
+
+    /// @notice Подія, що фіксує успішний платіж за товар
+    event PaymentReceived(address indexed buyer, uint256 amount);
+
+    /// @notice Подія, що фіксує успішне виведення коштів власником
+    event Withdrawal(address indexed owner, uint256 amount);
+
+    /// @dev Встановлює власника (msg.sender), назву товару та його ціну
+    /// @param _itemName назва товару
+    /// @param _itemPriceWei ціна товару в wei
+    constructor(string memory _itemName, uint256 _itemPriceWei) {
+        owner = msg.sender;
+        itemName = _itemName;
+        itemPriceWei = _itemPriceWei;
+    }
+
+    /// @notice Модифікатор для обмеження виклику лише власником товару
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+
+    /// @notice Функція оплати товару
+    /// @dev Кошти надходять на баланс контракту і зараховуються як баланс власника
+    ///      Покупець має надіслати рівно itemPriceWei wei
+    function payForItem() external payable {
+        require(msg.value == itemPriceWei, "Incorrect payment amount");
+
+        // Зараховуємо кошти на баланс власника всередині контракту
+        ownerBalance += msg.value;
+
+        emit PaymentReceived(msg.sender, msg.value);
+    }
+
+    /// @notice Функція виведення коштів власником товару у свій гаманець
+    /// @dev Може викликати лише owner. Виводить усю накопичену суму ownerBalance
+    function withdraw() external onlyOwner {
+        uint256 amount = ownerBalance;
+        require(amount > 0, "Nothing to withdraw");
+
+        // Обнуляємо баланс до переказу (шаблон "checks-effects-interactions")
+        ownerBalance = 0;
+
+        // Переказ коштів власнику товару (на його адресу)
+        (bool success, ) = owner.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        emit Withdrawal(owner, amount);
+    }
+
+    /// @notice Допоміжна функція для перегляду поточного балансу контракту
+    /// @return баланс контракту в wei
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+}
